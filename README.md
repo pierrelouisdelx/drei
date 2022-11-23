@@ -122,7 +122,8 @@ The `native` route of the library **does not** export `Html` or `Loader`. The de
           <li><a href="#usetexture">useTexture</a></li>
           <li><a href="#usektx2">useKTX2</a></li>
           <li><a href="#usecubetexture">useCubeTexture</a></li>
-          <li><a href="#usevideotexture">useVideoTexture</a></li>          
+          <li><a href="#usevideotexture">useVideoTexture</a></li>
+          <li><a href="#usetrailtexture">useTrailTexture</a></li>          
         </ul>
         <li><a href="#performance">Performance</a></li>
         <ul>
@@ -1027,7 +1028,7 @@ You can either pass a Mesh and InstancedMesh as children:
 ```tsx
 // This simple example scatters 1000 spheres on the surface of the sphere mesh.
 <Sampler
-  weight={"normal"} // the name of the attribute to be used as sampling weight
+  weight={'normal'} // the name of the attribute to be used as sampling weight
   transform={transformPoint} // a function that transforms each instance given a sample. See the examples for more.
   count={16} // Number of samples
 >
@@ -1036,7 +1037,7 @@ You can either pass a Mesh and InstancedMesh as children:
   </mesh>
 
   <instancedMesh args={[null, null, 1_000]}>
-    <sphereGeometry args={[0.1]}/>
+    <sphereGeometry args={[0.1]} />
   </instancedMesh>
 </Sampler>
 ```
@@ -1950,7 +1951,7 @@ A convenience hook that returns a `THREE.VideoTexture` and integrates loading in
 
 ```tsx
 type VideoTextureProps = {
-  unsuspend?: 'canplay' | 'canplaythrough'
+  unsuspend?: 'canplay' | 'canplaythrough' | 'loadedmetadata'
   muted?: boolean
   loop?: boolean
   start?: boolean
@@ -1973,6 +1974,44 @@ const texture = useVideoTexture("/video.mp4")
 return (
   <mesh>
     <meshBasicMaterial map={texture} toneMapped={false} />
+```
+
+#### useTrailTexture
+
+<p>
+  <a href="https://codesandbox.io/s/fj1qlg"><img width="20%" src="https://codesandbox.io/api/v1/sandboxes/fj1qlg/screenshot.png" alt="Demo"/></a>
+</p>
+
+This hook returns a `THREE.Texture` with a pointer trail which can be used in shaders to control displacement among other things, and a movement callback `event => void` which reads from `event.uv`.
+
+```tsx
+type TrailConfig = {
+  /** texture size (default: 256x256) */
+  size?: number
+  /** Max age (ms) of trail points (default: 750) */
+  maxAge?: number
+  /** Trail radius (default: 0.3) */
+  radius?: number
+  /** Canvas trail opacity (default: 0.2) */
+  intensity?: number
+  /** Add points in between slow pointer events (default: 0) */
+  interpolate?: number
+  /** Moving average of pointer force (default: 0) */
+  smoothing?: number
+  /** Minimum pointer force (default: 0.3) */
+  minForce?: number
+  /** Blend mode (default: 'screen') */
+  blend?: CanvasRenderingContext2D['globalCompositeOperation']
+  /** Easing (default: easeCircOut) */
+  ease?: (t: number) => number
+}
+```
+
+```jsx
+const [texture, onMove] = useTrailTexture(config)
+return (
+  <mesh onPointerMove={onMove}>
+    <meshStandardMaterial displacementMap={texture} />
 ```
 
 # Performance
@@ -2312,7 +2351,13 @@ function Effects() {
 
 Views use gl.scissor to cut the viewport into segments. You tie a view to a tracking div which then controls the position and bounds of the viewport. This allows you to have multiple views with a single, performant canvas. These views will follow their tracking elements, scroll along, resize, etc.
 
-It is advisable to re-connect the event system to a parent that contains both the canvas and the html content. This ensures that both are accessible/selectable and even allows you to mount controls or other deeper integrations into your view.
+It is advisable to re-connect the event system to a parent that contains both the canvas and the html content.
+This ensures that both are accessible/selectable and even allows you to mount controls or other deeper
+integrations into your view.
+
+> Note that `@react-three/fiber` newer than `^8.1.0` is required for `View` to work correctly if the
+> canvas/react three fiber root is not fullscreen. A warning will be logged if drei is used with older
+> versions of `@react-three/fiber`.
 
 ```tsx
 <View
@@ -2559,7 +2604,7 @@ Calculates a boundary box and centers the camera accordingly. If you are using c
 </Bounds>
 ```
 
-The Bounds component also acts as a context provider, use the `useBounds` hook to refresh the bounds, fit the camera, clip near/far planes or focus objects. `refresh(object?: THREE.Object3D | THREE.Box3)` will recalculate bounds. Since this can be expensive only call it when you know the view has changed. `clip` sets the cameras near/far planes. `fit` zooms and centers the view.
+The Bounds component also acts as a context provider, use the `useBounds` hook to refresh the bounds, fit the camera, clip near/far planes, go to camera orientations or focus objects. `refresh(object?: THREE.Object3D | THREE.Box3)` will recalculate bounds, since this can be expensive only call it when you know the view has changed. `clip` sets the cameras near/far planes. `to` sets a position and target for the camera. `fit` zooms and centers the view.
 
 ```jsx
 function Foo() {
@@ -2567,10 +2612,13 @@ function Foo() {
   useEffect(() => {
     // Calculate scene bounds
     bounds.refresh().clip().fit()
+
     // Or, focus a specific object or box3
     // bounds.refresh(ref.current).clip().fit()
     // bounds.refresh(new THREE.Box3()).clip().fit()
 
+    // Or, send the camera to a specific orientatin
+    // bounds.to({position: [0, 10, 10], target: {[5, 5, 0]}})
 <Bounds>
   <Foo />
 ```
@@ -2635,14 +2683,62 @@ This component makes its contents float or hover.
 
 [![](https://img.shields.io/badge/-storybook-%23ff69b4)](https://drei.pmnd.rs/?path=/story/staging-stage--stage-st)
 
-Creates a "stage" with proper studio lighting, content centered and planar, shadows and ground-contact shadows.
+<p>
+  <a href="https://codesandbox.io/s/57iefg"><img width="20%" src="https://codesandbox.io/api/v1/sandboxes/57iefg/screenshot.png" alt="Demo"/></a>
+</p>
 
-Make sure to set the `makeDefault` prop on your controls, in that case you do not need to provide `controls` via prop.
+Creates a "stage" with proper studio lighting, 0/0/0 top-centred, model-shadows, ground-shadows and optional zoom to fit. Make sure to set `makeDefault` on your controls when `adjustCamera` is true!
+
+```tsx
+type StageShadows = Partial<AccumulativeShadowsProps> &
+  Partial<RandomizedLightProps> &
+  Partial<ContactShadowsProps> & {
+    type: 'contact' | 'accumulative'
+    /** Shadow plane offset, default: 0 */
+    offset?: number
+    /** Shadow bias, default: -0.0001 */
+    bias?: number
+    /** Shadow normal bias, default: 0 */
+    normalBias?: number
+    /** Shadow map size, default: 1024 */
+    size?: number
+  }
+
+type StageProps = {
+  /** Lighting setup, default: "rembrandt" */
+  preset?:
+    | 'rembrandt'
+    | 'portrait'
+    | 'upfront'
+    | 'soft'
+    | { main: [x: number, y: number, z: number]; fill: [x: number, y: number, z: number] }
+  /** Controls the ground shadows, default: "contact" */
+  shadows?: boolean | 'contact' | 'accumulative' | StageShadows
+  /** Optionally wraps and thereby centers the models using <Bounds>, can also be a margin, default: true */
+  adjustCamera?: boolean | number
+  /** The default environment, default: "city" */
+  environment?: PresetsType | Partial<EnvironmentProps>
+  /** The lighting intensity, default: 0.5 */
+  intensity?: number
+}
+```
+
+By default it gives you contact shadows and auto-centering.
 
 ```jsx
-<Stage contactShadow shadows adjustCamera intensity={1} environment="city" preset="rembrandt" controls={controlsRef}>
+<Stage adjustCamera intensity={0.5} shadows="contact" environment="city">
   <mesh />
 </Stage>
+```
+
+For a little more realistic results enable accumulative shadows, which requires that the canvas, and models, can handle shadows.
+
+```jsx
+<Canvas shadows>
+  <Stage shadows="accumulative">
+    <mesh castShadows />
+  </Stage>
+</Canvas>
 ```
 
 #### Backdrop
@@ -2826,6 +2922,39 @@ Optionally you can provide a depth-buffer which converts the spotlight into a so
 function Foo() {
   const depthBuffer = useDepthBuffer()
   return <SpotLight depthBuffer={depthBuffer} />
+```
+
+#### SpotLightShadows
+
+A shadow caster that can help cast shadows of different patterns (textures) onto the scene.
+
+```jsx
+<SpotLight>
+  <SpotLightShadows
+    distance={0.4} // Distance between the shadow caster and light
+    alphaTest={0.5} // Sets the alpha value to be used when running an alpha test. See Material.alphaTest
+    scale={1} //  Scale of the shadow caster plane
+    map={undefined} // Texture - Pattern of the shadow
+    shader={undefined} // Optional shader to run. Lets you add effects to the shadow map. See bellow
+    width={512} // Width of the shadow map. The higher the more expnsive
+    height={512} // Height of the shadow map. The higher the more expnsive
+  />
+</SpotLight>
+```
+
+An optinal `shader` prop lets you run a custom shader to modify/add effects to your shadow texture. The shader privides the following uniforms and varyings.
+
+| Type                | Name         | Notes                                  |
+| ------------------- | ------------ | -------------------------------------- |
+| `varying vec2`      | `vUv`        | UVs of the shadow casting plane        |
+| `uniform sampler2D` | `uShadowMap` | The texture provided to the `map` prop |
+| `uniform float`     | `uTime`      | Current time                           |
+
+Treat the output of the shader like an alpha map where `1` is opaque and `0` is transparent.
+
+```glsl
+gl_FragColor = vec4(vec3(1.), 1.); // Opaque
+gl_FragColor = vec4(vec3(0.), 1.); // Transparnet
 ```
 
 #### Environment
